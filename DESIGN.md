@@ -49,11 +49,11 @@ This service answers all three: it meters usage, enforces quotas, calculates cos
 
 ## API surface
 
-- POST /tenants — create a new tenant, returns an API key
-- POST /generate — the dummy billable action (requires API key + Idempotency-Key header)
-- GET /usage — returns used, limit, and cost for the calling tenant
-- POST /checkout — creates a Stripe Checkout session for upgrading to Pro
-- POST /webhooks/stripe — receives and verifies Stripe webhook events
+- POST /tenants - create a new tenant, returns an API key
+- POST /generate - the dummy billable action (requires API key + Idempotency-Key header)
+- GET /usage - returns used, limit, and cost for the calling tenant
+- POST /checkout - creates a Stripe Checkout session for upgrading to Pro
+- POST /webhooks/stripe - receives and verifies Stripe webhook events
 
 ## Layer sketch
 
@@ -72,6 +72,7 @@ Request arrives -> HTTP layer validates input
 
 ## Architecture diagram (ASCII sketch)
 
+```
                     +------------------+
                     |     Client       |
                     +------------------+
@@ -118,6 +119,7 @@ Request arrives -> HTTP layer validates input
 | deduplicate event         |
 | update Subscription/Plan  |
 +---------------------------+
+```
 
 ## Idempotency strategy
 
