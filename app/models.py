@@ -45,9 +45,15 @@ class UsageEvent(Base):
 
     id = Column(Integer, primary_key=True)
     tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=False)
-    usage_type = Column(String, nullable=False)                  # "api_call" or "ai_tokens"
-    quantity = Column(Integer, nullable=False)
+    usage_type = Column(String, nullable=False)                  # api_call or ai_tokens
+    quantity = Column(Integer, nullable=False)                   # total count, used for quota checks
     idempotency_key = Column(String, nullable=False)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+    # Only used when usage_type is ai_tokens, these break the total down into the categories that price differently and stay 0 for api_call events.
+    input_tokens = Column(Integer, nullable=False, default=0)
+    cached_input_tokens = Column(Integer, nullable=False, default=0)
+    output_tokens = Column(Integer, nullable=False, default=0)
+    reasoning_tokens = Column(Integer, nullable=False, default=0)
 
     tenant = relationship("Tenant")
