@@ -1,14 +1,20 @@
-from fastapi import FastAPI, Depends, HTTPException, Header
+from fastapi import FastAPI, Depends, HTTPException, Header, Request
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from datetime import datetime, timezone
 import secrets
+import os
+import stripe
+from dotenv import load_dotenv
 from app.database import SessionLocal
 from app.models import Tenant, Plan, UsageEvent
 from typing import Optional
-from app.pricing import calculate_ai_token_cost_cents, calculate_api_call_cost_cents
+from app.pricing import calculate_ai_token_cost_cents, calculate_api_call_cost_cents, STRIPE_PRO_PRICE_ID
 
 app = FastAPI()
+
+load_dotenv()
+stripe.api_key = os.getenv("STRIPE_SECRET_KEY")
 
 def get_db():
     db = SessionLocal()
@@ -210,3 +216,40 @@ def get_usage(
         },
         "cost_cents": round(total_cost_cents),
     }
+
+@app.post("/checkout")
+def create_checkout_session(
+    tenant: Tenant = Depends(get_current_tenant),
+    db: Session = Depends(get_db),
+):
+    # If this tenant doesn't have a Stripe customer yet, create one now, and save the ID so future Stripe interactions know who this is
+    if not tenant.stripe_customer_id:
+        customer = stripe.Customer.create(name=tenant.name)
+        tenant.stripe_customer_id = customer.id
+        db.commit()
+
+    session = stripe.checkout.Session.create(
+        customer=tenant.stripe_customer_id,
+        mode="subscription",
+        line_items=[{"price": STRIPE_PRO_PRICE_ID, "quantity": 1}],
+        success_url="http://localhost:8000/checkout-success",
+        cancel_url="http://localhost:8000/checkout-cancel",
+    )
+
+    return {"checkout_url": session.url}
+
+@app.post("/webhooks/stripe")
+async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
+    payload = await request.body()
+    sig_header = request.headers.get("stripe-signature")
+    webhook_secret = os.getenv("STRIPE_WEBHOOK_SECRET")
+
+    # Verify this request genuinely came from Stripe, if it fails, it's either forged or corrupted, reject it immediately.
+    try:
+        event = stripe.Webhook.construct_event(payload, sig_header, webhook_secret)
+    except (ValueError, stripe.SignatureVerificationError):
+        raise HTTPException(status_code=400, detail="Invalid webhook signature")
+
+    #  once signature verification is confirmed, itself works
+
+    return {"status": "received", "type": event["type"]}

@@ -5,6 +5,9 @@ PRICE_PER_1K_OUTPUT_TOKENS_CENTS = 1.5          # output tokens (also covers rea
 # Flat price for a single API call (the "api_call" usage type, unrelated to tokens).
 PRICE_PER_API_CALL_CENTS = 0.1
 
+# Stripe price ID for the Pro plan subscription, created once via the Stripe CLI.
+STRIPE_PRO_PRICE_ID = "price_1UE9GYRM8GoWpVlfDGe9hVm4"
+
 
 def calculate_ai_token_cost_cents(input_tokens, cached_input_tokens, output_tokens, reasoning_tokens):
     """
