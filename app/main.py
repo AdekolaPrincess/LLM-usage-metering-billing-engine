@@ -280,6 +280,23 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
                 status="active",
             )
             db.add(subscription)
+    elif event["type"] == "customer.subscription.deleted":
+            subscription_obj = event["data"]["object"]
+            stripe_subscription_id = subscription_obj["id"]
+
+            subscription = (
+                db.query(Subscription)
+                .filter(Subscription.stripe_subscription_id == stripe_subscription_id)
+                .first()
+            )
+            if subscription:
+                subscription.status = "canceled"
+                subscription.ended_at = datetime.now(timezone.utc)
+
+                tenant = db.query(Tenant).filter(Tenant.id == subscription.tenant_id).first()
+                free_plan = db.query(Plan).filter(Plan.name == "Free").first()
+                if tenant and free_plan:
+                    tenant.current_plan_id = free_plan.id
 
     # Record that we've now processed this event, so a redelivery is
     # recognized and skipped next time.
