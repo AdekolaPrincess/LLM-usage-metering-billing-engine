@@ -1,0 +1,27 @@
+name: LLM Usage Metering & Billing Engine
+description: A backend service that meters usage, enforces plan quotas, calculates AI token costs, and syncs subscription state with Stripe in test mode.
+
+setup: pip install -r requirements.txt
+
+seed: python -m app.seed
+
+run: uvicorn app.main:app --host 0.0.0.0 --port 8000
+
+base_url: http://localhost:8000
+
+endpoints:
+  - method: POST
+    path: /tenants
+    description: Create a new tenant, returns an API key and default Free plan.
+  - method: POST
+    path: /generate
+    description: Record a billable usage event (api_call or ai_tokens). Requires X-API-Key header and Idempotency-Key in the body.
+  - method: GET
+    path: /usage
+    description: Returns current month's usage, plan limits, and cost for the calling tenant. Requires X-API-Key header.
+  - method: POST
+    path: /checkout
+    description: Creates a Stripe Checkout session for upgrading the tenant to the Pro plan. Requires X-API-Key header.
+  - method: POST
+    path: /webhooks/stripe
+    description: Receives and verifies Stripe webhook events, updates tenant plan and subscription state.

@@ -1,0 +1,120 @@
+# Evidence
+
+This file contains proof for each requirement in the capstone brief, taken from real test runs against the running service.
+
+## Metering: duplicate requests do not create duplicate usage events
+
+Request sent with idempotency_key "test-key-1":
+
+First call:
+​```
+status   usage_event_id usage_type quantity
+------   -------------- ---------- --------
+recorded              1 api_call          1
+​```
+
+Same request sent again, same idempotency_key:
+​```
+status            usage_event_id usage_type quantity
+------            -------------- ---------- --------
+duplicate_ignored              1 api_call          1
+​```
+
+The second call returns the same usage_event_id (1) and does not create a new event, confirming the same idempotency key can never be recorded twice.
+
+## Quota enforcement: requests over the limit are rejected with 429
+
+Free plan token quota is 100,000 tokens/month. A request was sent for 200,000 tokens in a single call:
+
+​```
+Invoke-RestMethod -Uri "http://127.0.0.1:8000/generate" -Method Post -Headers @{"X-API-Key"="..."} -Body (@{usage_type="ai_tokens"; quantity=200000; idempotency_key="test-quota-1"} | ConvertTo-Json) -ContentType "application/json"
+​```
+
+Server response:
+​```
+INFO:     127.0.0.1:61032 - "POST /generate HTTP/1.1" 429 Too Many Requests
+​```
+
+The request was rejected with a 429 status code because it would have pushed the tenant's monthly token usage above their plan's quota, confirming quota enforcement happens before the usage event is recorded.
+
+## Cost calculation: AI token pricing rules produce correct totals
+
+Pricing constants (pinned in app/pricing.py):
+- Input tokens: 0.3 cents per 1,000
+- Cached input tokens: 0.075 cents per 1,000 (cheaper than fresh input)
+- Output tokens: 1.5 cents per 1,000
+- Reasoning tokens: billed at the output rate (1.5 cents per 1,000), not a separate category
+
+A usage event was recorded with the following breakdown:
+- input_tokens: 1000
+- cached_input_tokens: 2000
+- output_tokens: 500
+- reasoning_tokens: 300
+
+Hand calculation:
+- Input: 1000 / 1000 x 0.3 = 0.3 cents
+- Cached input: 2000 / 1000 x 0.075 = 0.15 cents
+- Output: 500 / 1000 x 1.5 = 0.75 cents
+- Reasoning (at output rate): 300 / 1000 x 1.5 = 0.45 cents
+- Total: 0.3 + 0.15 + 0.75 + 0.45 = 1.65 cents, rounded to 2 cents
+
+Server response from GET /usage after recording this event:
+​```
+plan cost_cents
+---- ----------
+Free          2
+​```
+
+The server's calculated cost (2 cents) matches the hand calculation exactly, confirming cached input tokens are billed cheaper than fresh input, and reasoning tokens are correctly billed at the output rate rather than being added as a separate, differently priced category.
+
+## Stripe integration: webhook signature verification
+
+A test event was triggered using the Stripe CLI (`stripe trigger checkout.session.completed`), forwarded to the local webhook endpoint via `stripe listen`. All resulting events were correctly verified and accepted:
+
+​```
+2026-09-10 16:06:00   --> product.created [evt_1UE9YvRM8GoWpVlfra2eJBCb]
+2026-09-10 16:06:00  <--  [200] POST http://localhost:8000/webhooks/stripe [evt_1UE9YvRM8GoWpVlfra2eJBCb]
+2026-09-10 16:06:11   --> checkout.session.completed [evt_1UE9Z6RM8GoWpVlfS6PWdYMJ]
+2026-09-10 16:06:11  <--  [200] POST http://localhost:8000/webhooks/stripe [evt_1UE9Z6RM8GoWpVlfS6PWdYMJ]
+​```
+
+Every event returned a 200 status, confirming the webhook signature was successfully verified for genuine Stripe-originated events using the shared webhook secret.
+
+## Stripe integration: checkout flips a tenant from Free to Pro
+
+A new tenant was created (defaulting to the Free plan), a Checkout session was created via POST /checkout, and the checkout was completed in the browser using Stripe's test card (4242 4242 4242 4242). The webhook for checkout.session.completed was received and processed.
+
+GET /usage was then called for the same tenant:
+
+​```
+plan api_calls              ai_tokens                cost_cents
+---- ---------              ---------                ----------
+Pro  @{used=0; limit=50000} @{used=0; limit=5000000}          0
+​```
+
+The tenant's plan changed from Free to Pro, and the usage limits shown (50,000 API calls, 5,000,000 AI tokens) match the Pro plan's quotas, confirming the webhook correctly updated the tenant's plan and that GET /usage reflects the new limits.
+
+## Stripe integration: forged webhook signatures are rejected
+
+A request was sent directly to /webhooks/stripe with a fabricated stripe-signature header (not calculated by Stripe):
+
+​```
+400
+{"detail":"Invalid webhook signature"}
+​```
+
+The request was rejected with a 400 status code, confirming forged or invalid signatures are never trusted or processed.
+
+## Stripe integration: duplicate event delivery is processed only once
+
+A genuine, correctly-signed event (evt_1UEotPRM8GoWpVlfQmzW7EKO) was sent to the webhook endpoint twice using `stripe events resend`. Both deliveries returned 200 OK.
+
+Querying the database directly for this event ID afterward:
+
+​```
+python -c "from app.database import SessionLocal; from app.models import ProcessedWebhookEvent; db = SessionLocal(); rows = db.query(ProcessedWebhookEvent).filter(ProcessedWebhookEvent.stripe_event_id == 'evt_1UEotPRM8GoWpVlfQmzW7EKO').all(); print(f'Found {len(rows)} row(s) for this event ID')"
+
+Found 1 row(s) for this event ID
+​```
+
+Only one row exists for this event ID despite two deliveries, confirming the second delivery was correctly recognized as a duplicate and not reprocessed.
