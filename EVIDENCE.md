@@ -118,3 +118,22 @@ Found 1 row(s) for this event ID
 ​```
 
 Only one row exists for this event ID despite two deliveries, confirming the second delivery was correctly recognized as a duplicate and not reprocessed.
+
+## Stripe integration: subscription cancellation reverts tenant to Free plan
+
+A tenant's Pro subscription was canceled directly in the Stripe sandbox, triggering a genuine `customer.subscription.deleted` webhook event.
+
+Database state before cancellation:
+​```
+tenant plan_id: 2   (Pro)
+subscription status: active
+​```
+
+After the webhook was received and processed:
+​```
+tenant plan_id: 1   (Free)
+subscription status: canceled
+subscription ended_at: 2026-09-12 19:22:15.400783
+​```
+
+The tenant's plan was correctly reverted to Free, and the subscription record was marked canceled with a real timestamp, confirming the webhook handler correctly processes subscription cancellations, not just new subscriptions.
