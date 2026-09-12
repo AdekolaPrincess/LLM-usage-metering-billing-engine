@@ -7,7 +7,7 @@ import os
 import stripe
 from dotenv import load_dotenv
 from app.database import SessionLocal
-from app.models import Tenant, Plan, UsageEvent
+from app.models import Tenant, Plan, UsageEvent, ProcessedWebhookEvent, Subscription
 from typing import Optional
 from app.pricing import calculate_ai_token_cost_cents, calculate_api_call_cost_cents, STRIPE_PRO_PRICE_ID
 
@@ -244,12 +244,46 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
     sig_header = request.headers.get("stripe-signature")
     webhook_secret = os.getenv("STRIPE_WEBHOOK_SECRET")
 
-    # Verify this request genuinely came from Stripe, if it fails, it's either forged or corrupted, reject it immediately.
     try:
         event = stripe.Webhook.construct_event(payload, sig_header, webhook_secret)
     except (ValueError, stripe.SignatureVerificationError):
         raise HTTPException(status_code=400, detail="Invalid webhook signature")
 
-    #  once signature verification is confirmed, itself works
+    # Deduplication: if we've already processed this exact event ID, do nothing and just acknowledge it
+    already_processed = (
+        db.query(ProcessedWebhookEvent)
+        .filter(ProcessedWebhookEvent.stripe_event_id == event["id"])
+        .first()
+    )
+    if already_processed:
+        return {"status": "duplicate_ignored", "type": event["type"]}
 
-    return {"status": "received", "type": event["type"]}
+    # Handle the specific event types we care about
+    if event["type"] == "checkout.session.completed":
+        session = event["data"]["object"]
+        stripe_customer_id = session["customer"]
+        stripe_subscription_id = session["subscription"]
+
+        tenant = (
+            db.query(Tenant)
+            .filter(Tenant.stripe_customer_id == stripe_customer_id)
+            .first()
+        )
+        if tenant:
+            pro_plan = db.query(Plan).filter(Plan.name == "Pro").first()
+            tenant.current_plan_id = pro_plan.id
+
+            subscription = Subscription(
+                tenant_id=tenant.id,
+                plan_id=pro_plan.id,
+                stripe_subscription_id=stripe_subscription_id,
+                status="active",
+            )
+            db.add(subscription)
+
+    # Record that we've now processed this event, so a redelivery is
+    # recognized and skipped next time.
+    db.add(ProcessedWebhookEvent(stripe_event_id=event["id"]))
+    db.commit()
+
+    return {"status": "processed", "type": event["type"]}

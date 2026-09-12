@@ -57,3 +57,10 @@ class UsageEvent(Base):
     reasoning_tokens = Column(Integer, nullable=False, default=0)
 
     tenant = relationship("Tenant")
+
+class ProcessedWebhookEvent(Base):
+    __tablename__ = "processed_webhook_events"
+
+    id = Column(Integer, primary_key=True)
+    stripe_event_id = Column(String, unique=True, nullable=False)
+    processed_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
