@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends, HTTPException, Header, Request
+from fastapi import FastAPI, Depends, HTTPException, Header, Request, BackgroundTasks
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from datetime import datetime, timezone
@@ -10,6 +10,7 @@ from app.database import SessionLocal
 from app.models import Tenant, Plan, UsageEvent, ProcessedWebhookEvent, Subscription
 from typing import Optional
 from app.pricing import calculate_ai_token_cost_cents, calculate_api_call_cost_cents, STRIPE_PRO_PRICE_ID
+from app.jobs import run_monthly_rollup_job
 
 app = FastAPI()
 
@@ -298,9 +299,13 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
                 if tenant and free_plan:
                     tenant.current_plan_id = free_plan.id
 
-    # Record that we've now processed this event, so a redelivery is
-    # recognized and skipped next time.
+    # Record that we've now processed this event, so a redelivery is recognized and skipped next time
     db.add(ProcessedWebhookEvent(stripe_event_id=event["id"]))
     db.commit()
 
     return {"status": "processed", "type": event["type"]}
+
+@app.post("/admin/run-rollup-job")
+def trigger_rollup_job(background_tasks: BackgroundTasks):
+    background_tasks.add_task(run_monthly_rollup_job)
+    return {"status": "job_started"}

@@ -64,3 +64,27 @@ class ProcessedWebhookEvent(Base):
     id = Column(Integer, primary_key=True)
     stripe_event_id = Column(String, unique=True, nullable=False)
     processed_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+class MonthlyRollup(Base):
+    __tablename__ = "monthly_rollups"
+
+    id = Column(Integer, primary_key=True)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=False)
+    month = Column(String, nullable=False)  # stored as "YYYY-MM"
+    api_calls_used = Column(Integer, nullable=False)
+    ai_tokens_used = Column(Integer, nullable=False)
+    cost_cents = Column(Integer, nullable=False)
+    calculated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+    tenant = relationship("Tenant")
+
+
+class JobFailureLog(Base):
+    __tablename__ = "job_failure_log"
+
+    id = Column(Integer, primary_key=True)
+    job_name = Column(String, nullable=False)
+    tenant_id = Column(Integer, nullable=True)
+    error_message = Column(String, nullable=False)
+    failed_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    

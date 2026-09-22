@@ -137,3 +137,24 @@ subscription ended_at: 2026-09-12 19:22:15.400783
 ​```
 
 The tenant's plan was correctly reverted to Free, and the subscription record was marked canceled with a real timestamp, confirming the webhook handler correctly processes subscription cancellations, not just new subscriptions.
+
+## Background job: monthly rollup with retries and failure logging
+
+POST /admin/run-rollup-job starts a monthly usage rollup job that runs after the response is returned to the caller (using FastAPI's BackgroundTasks), rather than blocking the request.
+
+Happy path: a tenant with 5 recorded API calls had the job run against them. Checking the monthly_rollups table afterward:
+​```
+tenant_id  month     api_calls_used  ai_tokens_used  cost_cents
+1          2026-09   5               0               0
+​```
+
+A real rollup row was created with the correct usage totals, confirming the job actually performs the calculation work, not just returning a fake "started" response.
+
+Failure and retry path: a tenant's plan reference was deliberately corrupted (set to a non-existent plan id), causing the rollup calculation to genuinely fail when looking up the tenant's plan. The job was run again:
+
+​```
+job_name        tenant_id  error_message                              failed_at
+monthly_rollup   1          'NoneType' object has no attribute 'name'  2026-09-22 13:54:27.241669
+​```
+
+The job retried the failing tenant up to 3 times, then logged the failure to job_failure_log instead of crashing, confirming the job handles per-tenant failures gracefully and does not lose the error silently.
