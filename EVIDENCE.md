@@ -158,3 +158,18 @@ monthly_rollup   1          'NoneType' object has no attribute 'name'  2026-09-2
 ​```
 
 The job retried the failing tenant up to 3 times, then logged the failure to job_failure_log instead of crashing, confirming the job handles per-tenant failures gracefully and does not lose the error silently.
+
+
+## Quota enforcement: 402 vs 429 are distinct and both correctly enforced
+
+429 is used when a tenant is on a valid, active plan but has used up their monthly quota (already proven above, Free plan tenant sending 200,000 tokens against a 100,000 limit).
+
+402 is used when a tenant's subscription itself is not active (canceled or past_due), a payment/access problem rather than a usage problem.
+
+A tenant's Pro subscription was canceled in the Stripe sandbox. Their subscription status was confirmed as canceled and their plan correctly reverted to Free. A subsequent request to POST /generate for this tenant returned:
+
+​```
+INFO:     127.0.0.1:60707 - "POST /generate HTTP/1.1" 402 Payment Required
+​```
+
+This confirms 402 is returned for a genuinely inactive subscription, distinct from 429, which is reserved for active tenants who have simply used up their allotted quota for the month.

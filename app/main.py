@@ -88,6 +88,20 @@ def generate(
         )
         .first()
     )
+
+    # Check subscription status before checking quota, a tenant whose subscription isn't active has a payment problem
+    subscription = (
+        db.query(Subscription)
+        .filter(Subscription.tenant_id == tenant.id)
+        .order_by(Subscription.id.desc())
+        .first()
+    )
+    if subscription and subscription.status != "active":
+        raise HTTPException(
+            status_code=402,
+            detail=f"Subscription status is '{subscription.status}', payment required to continue.",
+        )
+
     if existing_event:
         return {
             "status": "duplicate_ignored",
