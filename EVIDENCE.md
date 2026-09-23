@@ -173,3 +173,23 @@ INFO:     127.0.0.1:60707 - "POST /generate HTTP/1.1" 402 Payment Required
 ​```
 
 This confirms 402 is returned for a genuinely inactive subscription, distinct from 429, which is reserved for active tenants who have simply used up their allotted quota for the month.
+
+## Quota enforcement: exact boundary behavior
+
+Documented rule (see DESIGN.md): a tenant may use up to and including their exact quota. Only a request that would push usage strictly above the quota is rejected.
+
+A fresh tenant sent a request for exactly 100,000 tokens (the Free plan's exact monthly token quota):
+​```
+status   usage_event_id usage_type quantity
+------   -------------- ---------- --------
+recorded              1 ai_tokens    100000
+​```
+
+The request succeeded, landing exactly on the quota boundary.
+
+A second request for just 1 additional token was then sent:
+​```
+{"detail":"Quota exceeded: 100000 used, 100000 allowed this month for ai_tokens"}
+​```
+
+This request was correctly rejected with a 429, confirming the boundary is enforced exactly as documented, usage up to and including the quota is allowed, the request that would exceed it is rejected.

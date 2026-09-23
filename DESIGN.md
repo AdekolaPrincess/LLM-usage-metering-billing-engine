@@ -135,3 +135,7 @@ This system does not support overage billing, mid-cycle plan proration, or
 invoicing. When a tenant exceeds their quota, the request is rejected with a
 429 or 402 response. They are not charged extra, and no partial credit is
 calculated for a mid-month upgrade. These are documented as stretch goals only.
+
+## Quota boundary rule
+
+A tenant may use up to and including their exact monthly quota. A request is only rejected if it would push their usage strictly above the quota. For example, with a 100,000 token quota, a request that brings total usage to exactly 100,000 succeeds; the next request, even for a single additional token, is rejected with a 429.
